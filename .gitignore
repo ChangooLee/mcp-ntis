@@ -1,0 +1,59 @@
+# External upstream clones — do not commit
+external/upstreams/*
+!external/upstreams/.gitkeep
+
+# Runtime state — do not commit sensitive state
+# Commit .gitkeep to preserve directory structure; ignore runtime content
+state/runs/*
+!state/runs/.gitkeep
+state/tasks/*
+!state/tasks/.gitkeep
+state/artifacts/*
+!state/artifacts/.gitkeep
+state/indexes/*
+!state/indexes/.gitkeep
+!state/indexes/README.md
+
+# Commit these fully:
+# state/memory/     — project memory (deliberately persisted)
+# state/reflections/ — reflection logs (deliberately persisted)
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+
+# Cursor local state
+.cursor/local/
