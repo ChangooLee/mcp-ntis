@@ -10,6 +10,7 @@ load_dotenv()
 @dataclass
 class NTISConfig:
     api_key: str
+    new_api_key: str = ""
     org_cd: str = ""
     user_id: str = ""
     cache_ttl_hours: int = 24
@@ -21,6 +22,7 @@ class NTISConfig:
             raise ValueError("NTIS_API_KEY 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.")
         return cls(
             api_key=api_key,
+            new_api_key=os.getenv("NTIS_NEW_API_KEY", ""),
             org_cd=os.getenv("NTIS_ORG_CD", ""),
             user_id=os.getenv("NTIS_USER_ID", ""),
             cache_ttl_hours=int(os.getenv("NTIS_CACHE_TTL_HOURS", "24")),

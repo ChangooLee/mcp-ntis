@@ -57,3 +57,11 @@ build/
 
 # Cursor local state
 .cursor/local/
+
+# Playwright screenshots
+.playwright-mcp/
+streamlit-*.png
+
+# Skills/agents/scripts/external (다른 워크플로우용)
+external/
+state/runs/
