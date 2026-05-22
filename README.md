@@ -301,6 +301,103 @@ NTIS 검색 API는 단일 호출당 최대 100건. 시나리오별 권장 패턴
 
 ---
 
+## 부록 — ScienceON API 토큰 발급 (참고)
+
+KISTI ScienceON OpenAPI도 같은 NTIS 생태계 데이터(논문·특허·보고서·동향·연구자·기관 등)를
+제공하므로, 향후 통합을 위해 토큰 발급 절차를 기록합니다. **NTIS와는 별개의 API이며 별도
+인증키가 필요**합니다.
+
+### 토큰 발급 정확한 스펙
+
+ScienceON 토큰 발급은 AES 암호화를 거쳐야 하는데, **공식 가이드 페이지의 텍스트만으로는
+스펙이 명확하지 않아 KISTI 헬프데스크가 GitHub 샘플 코드를 보라고 안내**합니다
+(자료실: [API 활용 예제 코드(PYTHON)](https://scienceon.kisti.re.kr/apigateway/api/material/pdsList.do)).
+
+샘플 코드에서 확인된 정확한 스펙:
+
+| 항목 | 값 |
+|---|---|
+| 엔드포인트 | `https://apigateway.kisti.re.kr/tokenrequest.do` |
+| 알고리즘 | **AES-256-CBC** (ECB 아님) |
+| IV (고정) | **`jvHJ1EFA0IXBrxxz`** (16바이트 UTF-8) |
+| 키 | 발급 인증키 32자 문자열 그대로 UTF-8 (hex 변환 금지) |
+| 패딩 | PKCS7 (`chr(pad_n) * pad_n`) |
+| Base64 | **`base64.urlsafe_b64encode`** (일반 base64 아님) |
+| JSON 페이로드 | `{"datetime":"YYYYMMDDHHmmss","mac_address":"AA-BB-CC-DD-EE-FF"}` (공백 제거) |
+| datetime 포맷 | `strftime('%Y-%m-%d %H:%M:%S')`에서 숫자만 추출 |
+| MAC 포맷 | 대문자 + 하이픈 (예: `5C-E9-1E-8C-9F-7E`) |
+
+### 검증된 Python 클라이언트
+
+```python
+import json, base64, datetime, re, httpx
+from urllib import parse
+from Crypto.Cipher import AES
+
+MAC_ADDRESS = "5C-E9-1E-8C-9F-7E"        # 등록 MAC
+CLIENT_ID   = "<발급받은 client_id>"
+KEY         = "<발급받은 32자 인증키>"
+
+IV = b"jvHJ1EFA0IXBrxxz"
+BLOCK = 16
+
+def _pkcs7(s: str) -> bytes:
+    n = BLOCK - len(s) % BLOCK
+    return (s + chr(n) * n).encode("utf-8")
+
+def create_token() -> dict:
+    time_s = "".join(re.findall(r"\d", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    plain = json.dumps({"datetime": time_s, "mac_address": MAC_ADDRESS}).replace(" ", "")
+    cipher = AES.new(KEY.encode("utf-8"), AES.MODE_CBC, IV)
+    accounts = base64.urlsafe_b64encode(cipher.encrypt(_pkcs7(plain))).decode("utf-8")
+    url = f"https://apigateway.kisti.re.kr/tokenrequest.do?client_id={CLIENT_ID}&accounts={accounts}"
+    return httpx.get(url, timeout=15).json()
+
+def search_paper(access_token: str, keyword: str) -> str:
+    q = parse.quote(json.dumps({"BI": keyword}))
+    url = ("https://apigateway.kisti.re.kr/openapicall.do?"
+           f"client_id={CLIENT_ID}&token={access_token}&version=1.0"
+           f"&action=search&target=ARTI&searchQuery={q}&curPage=1&rowCount=10")
+    return httpx.get(url, timeout=20).text
+
+if __name__ == "__main__":
+    tk = create_token()
+    print(tk["access_token"])
+    print(search_paper(tk["access_token"], "양자컴퓨터"))
+```
+
+### 응답 예시
+
+```json
+{
+  "access_token":  "0a583bb6ed7d2f535719ac23999bbe2f...",
+  "refresh_token": "c877261643542220ec7636154be88b60...",
+  "access_token_expire":  "2026-05-22 12:44:24.873",   // 2시간 유효
+  "refresh_token_expire": "2026-06-05 10:44:24.873",   // 2주 유효
+  "issued_at":            "2026-05-22 10:44:24.000873",
+  "client_id":            "<요청 client_id>"
+}
+```
+
+### 토큰 재발급 (Refresh Token 사용)
+
+```python
+url = f"https://apigateway.kisti.re.kr/tokenrequest.do?refreshToken={refresh_token}&client_id={CLIENT_ID}"
+new = httpx.get(url, timeout=15).json()  # 새 access_token 발급
+```
+
+### 흔한 오류
+
+| 코드 | 원인 | 해결 |
+|---|---|---|
+| `E4006` | 암호화 방식 불일치 (가장 흔함) | AES-256-CBC + 고정 IV + urlsafe_b64encode 사용 |
+| `E4103` | Access Token 만료 | Refresh Token으로 재발급 |
+| `E4106` | Refresh Token 만료 | createToken으로 처음부터 |
+
+> ⚠️ **MAC 주소는 신청 시 등록한 값과 정확히 일치**해야 합니다. (대문자/소문자, 콜론/하이픈 포함). 변경이 필요하면 ScienceON 포털에서 수정 후 사용하세요.
+
+---
+
 ## 데이터 출처
 
 [국가과학기술지식정보서비스(NTIS)](https://www.ntis.go.kr) — 한국과학기술정보연구원(KISTI) 제공.
