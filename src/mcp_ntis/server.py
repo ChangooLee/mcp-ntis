@@ -192,7 +192,7 @@ import os as _os
 if _os.getenv("SCIENCEON_CLIENT_ID") and _os.getenv("SCIENCEON_API_KEY"):
     try:
         importlib.import_module("mcp_ntis.scienceon.tools")
-        logger.info("ScienceON 도구 27개 활성화")
+        logger.info("ScienceON 도구 17개 활성화 (공식 카탈로그 1:1 매핑)")
     except Exception as _exc:
         logger.warning(f"ScienceON 도구 로드 실패: {_exc}")
 
