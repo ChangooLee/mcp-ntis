@@ -24,7 +24,7 @@ for p in (PROJECT_ROOT, PROJECT_ROOT / "src"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from chatbot.agent import build_agent, stream_agent_run  # noqa: E402
+from chatbot.agent import build_agent, stream_agent_run, enhance_user_prompt  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -99,16 +99,18 @@ def render_sidebar(tools: list[Any]) -> None:
 
         st.divider()
 
-        st.markdown("### 💡 융합 시나리오 (NTIS + ScienceON)")
+        st.markdown("### 💡 사업 분석 질문 예시")
         examples = [
-            "mRNA 백신 상위 3개 기관의 NTIS 정부지원금과 ScienceON 학술 출간량을 비교해서 펀딩 효율을 평가해줘.",
-            "전고체 배터리 분야 한국의 강점을 NTIS 과제·ScienceON 논문·특허로 종합 비교해줘. 한국이 더 강한 영역(특허 vs 논문)을 결론지어줘.",
-            "NTIS 트렌드 이슈와 ScienceON 동향 보고서를 비교해서 정부·KISTI 큐레이션이 일치하는 분야를 찾아줘.",
-            "ETRI AI 최대 예산 과제의 공동연구기관과 핵심 PI를 식별하고, ScienceON 연구자 검색으로 PI의 학술 활동 이력을 추적해줘.",
-            "'CRISPR-Cas9 희귀질환 치료' 연구를 NTIS 3종 분류와 ScienceON DDC 분류로 동시에 매핑해서 차이를 비교해줘.",
-            "항암 면역치료 vs 치매 신약을 NTIS 정부 예산·ScienceON 논문 수 동시 비교해 1억원당 논문 효율을 계산해줘.",
-            "양자 우월성(Quantum Supremacy) 개념의 한국 R&D를 NTIS 통합검색·ScienceON 논문·특허·동향 4-way 교차 검증해줘.",
+            "우리 회사가 mRNA 백신 사업에 진출하려고 해. 한국에서 누가 이 분야를 가장 활발히 하고 있고, 협력 후보 기업·기관을 추천해줘.",
+            "전고체 배터리 시장 진입을 검토 중이야. 한국의 R&D 생태계 — 학계·출연연·중소기업 가치사슬을 정리해줘. 우리가 끼어들 수 있는 자리가 어딘지도.",
+            "지금 정부가 가장 빠르게 투자를 늘리고 있는 차세대 산업이 뭐야? 우리 회사가 정부 R&D 펀딩을 노릴 만한 분야를 알려줘.",
+            "ETRI(한국전자통신연구원)과 AI 분야 협력을 검토 중이야. ETRI의 AI 역량, 진행 중인 대형 과제, 핵심 연구자를 정리해줘.",
+            "CRISPR 유전자 편집으로 희귀질환 치료 사업을 시작하려 해. 우리 연구가 어떤 정부 분류 카테고리에 속하고, 한국에서 비슷한 연구를 누가 하는지 알려줘.",
+            "고령자 시장 진출 검토 중인데, 치매 신약과 항암 면역치료 중 어느 분야가 정부 펀딩이 더 효율적이야? 5년 추세로 비교.",
+            "양자컴퓨터 분야에 우리 회사가 진출할 수 있을까? 한국의 기술 수준, 핵심 연구자·기업, 강한 영역(하드웨어 vs 알고리즘)을 알려줘.",
             "스마트 토일렛 헬스케어 제품을 만들고 싶어. 어떤 기술이 모여야 하고 어떤 기업과 협력할 수 있을지 알려줘.",
+            "전자현미경을 활용한 R&D를 시작하려는데, 한국에서 어디와 협업해야 가장 좋은 장비를 쓸 수 있어?",
+            "특정 분야 전문가(예: 양자컴퓨팅 분야 'Kim Jun-ki')의 학술 활동을 추적해서 영입 가능성을 검토하고 싶어.",
         ]
         for ex in examples:
             if st.button(ex[:50] + ("..." if len(ex) > 50 else ""), key=f"ex_{hash(ex)}"):
@@ -116,6 +118,14 @@ def render_sidebar(tools: list[Any]) -> None:
                 st.rerun()
 
         st.divider()
+
+        st.markdown("### ⚙️ 설정")
+        st.session_state.setdefault("use_enhancer", True)
+        st.session_state.use_enhancer = st.checkbox(
+            "🪄 질문 자동 강화 (Prompt Enhancer)",
+            value=st.session_state.use_enhancer,
+            help="비즈니스 자연어 질문을 분석 도구 활용 계획으로 자동 보강합니다.",
+        )
 
         if st.button("🗑️ 대화 초기화", use_container_width=True):
             st.session_state.messages = []
@@ -283,13 +293,33 @@ def main() -> None:
     question = pending or st.chat_input("궁금한 R&D 동향을 물어보세요...")
 
     if question:
-        # 사용자 메시지 표시
+        # 사용자 메시지 표시 (원본)
         st.session_state.messages.append({"role": "user", "content": question})
         with st.chat_message("user", avatar="👤"):
             st.markdown(question)
 
+        # Prompt Enhancer 적용
+        agent_input = question
+        if st.session_state.get("use_enhancer", True):
+            with st.status("🪄 질문 강화 중...", expanded=False) as s:
+                try:
+                    import os as _os
+                    enhanced = run_async(enhance_user_prompt(
+                        question,
+                        model_name=_os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929"),
+                        api_key=_os.getenv("ANTHROPIC_API_KEY", ""),
+                    ))
+                    agent_input = enhanced
+                    # 강화된 부분만 표시 (원본 제외)
+                    plan_text = enhanced.split("---\n", 1)[-1] if "---" in enhanced else enhanced
+                    st.markdown(plan_text)
+                    s.update(label="✅ 분석 계획 수립 완료", state="complete", expanded=False)
+                except Exception as exc:
+                    st.warning(f"질문 강화 실패: {exc} — 원본 질문으로 진행")
+                    s.update(label="⚠️ 원본 질문으로 진행", state="complete", expanded=False)
+
         # 에이전트 실행 + 단계별 시각화
-        result = render_live(question, agent)
+        result = render_live(agent_input, agent)
 
         # 저장
         st.session_state.messages.append({
