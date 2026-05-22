@@ -77,42 +77,16 @@ B. 학술·특허 데이터 (ScienceON, 24개 도구, sci_ 접두사) — 전체
    - 핵심 PI 식별 → `search_sci_researchers`/`search_sci_papers`로 학술 활동 확인
 
 ═══════════════════════════════════════════════════════════════════════
-【토큰 예산 + 가상 파일시스템 = 대용량 분석 패턴】
+【토큰 예산 — Context Overflow 방지】
 ═══════════════════════════════════════════════════════════════════════
 - 누적 도구 응답이 200K 토큰을 넘으면 분석이 즉시 중단된다.
-- 도구 응답이 12,000자를 넘으면 자동 truncate된다.
-
-**해결: 가상 파일시스템(write_file/read_file/edit_file/ls)을 적극 활용하라.**
-
-당신에게는 DeepAgent 가상 파일시스템 도구가 있다 — 이것은 LLM 컨텍스트와
-별개의 디스크 공간이다. **큰 검색 결과를 파일로 적재하고, 필요할 때만
-필요한 부분만 다시 읽어 컨텍스트를 절약하라.**
-
-**대용량 분석 표준 패턴**:
-
-1) **탐색 단계 (4~6회)** — 키워드 검색 `rows=10~30`
-   → 결과 핵심 메타(총 건수·상위 5건 ID·기관)만 컨텍스트에 남기고
-   → 전체 응답은 `write_file("notes/01_search_X.json", <응답>)` 으로 저장
-
-2) **심층 단계 (3~5회)** — 식별된 후보에 대해 상세 도구 (`get_*`) 호출
-   → 핵심 필드만 추출해 새 파일에 누적: `write_file("notes/02_candidates.md", "...")`
-
-3) **정량 단계 (1~2회)** — `fetch_all=True`로 모은 큰 데이터
-   → 즉시 `write_file("notes/03_quant.json", ...)`로 저장
-   → 컨텍스트에는 "총 N건, 누적 X억, 상위 5개 항목" 요약만 유지
-
-4) **합성 단계** — 최종 보고서 작성 시
-   → `ls()`로 누적 파일 확인 → 필요한 파일만 `read_file()`로 부분 로드
-   → `write_file("report_<주제>.md", 최종 보고서)` 로 저장
-
-**가상 파일시스템 사용 규칙**:
-- 같은 쿼리 두 번 호출 금지 — 이미 저장한 파일을 `read_file`로 재활용
-- 분석 진행 중 발견한 핵심 인사이트는 즉시 `notes/insights.md`에 누적 저장
-- 파일명 규칙: `notes/<순번>_<주제>.<ext>` (예: `notes/01_market.json`, `notes/02_competitors.md`)
-- 세션이 길어지면 `ls()` 로 적재 상태 확인
-
-⇒ 이 패턴을 따르면 33개 도구 모두 활용하면서도 컨텍스트가 폭주하지 않고,
-   사용자 후속 질문 시 적재된 데이터를 재활용하여 빠르게 답할 수 있다.
+- **권장 호출 패턴**:
+  1) 탐색 단계 — `rows=10~30`로 폭넓게 스캔 (4~6회)
+  2) 심층 단계 — 후보 기관·인물 N개에 대해 좁은 쿼리 (3~5회)
+  3) 정량 단계 — `fetch_all=True`는 최종 합산용 1~2회만
+- 도구 응답이 12,000자를 넘으면 자동 truncate되며 메시지가 표시된다.
+  이때는 검색어를 더 좁히거나 다른 도구로 집계 정보를 얻는다.
+- 같은 쿼리 반복 호출 금지 — 이미 받은 결과를 재활용한다.
 
 ═══════════════════════════════════════════════════════════════════════
 【비즈니스 프레임워크 — 답변에 활용】
@@ -434,16 +408,11 @@ async def build_agent() -> tuple[Any, list[Any]]:
         max_tokens=16384,
     )
 
-    # DeepAgent 생성 — 가상 파일시스템 + 메모리 활성화
-    # - filesystem(`write_file`/`read_file`/`edit_file`/`ls`)는 기본 포함
-    # - checkpointer=True: 세션 내 대화 영속 (LangGraph in-memory)
-    # - memory=[...]: 장기 메모리 키 (선택)
-    from langgraph.checkpoint.memory import InMemorySaver
+    # DeepAgent 생성
     agent = create_deep_agent(
         model=model,
         tools=tools,
         system_prompt=SYSTEM_PROMPT,
-        checkpointer=InMemorySaver(),
     )
     return agent, tools
 
@@ -541,23 +510,14 @@ async def run_agent_full(agent: Any, user_message: str) -> str:
     return str(last.content)
 
 
-async def run_agent_collect(
-    agent: Any,
-    user_message: str,
-    thread_id: str = "default",
-) -> dict[str, Any]:
+async def run_agent_collect(agent: Any, user_message: str) -> dict[str, Any]:
     """ainvoke로 한 번에 받아 모든 step + final을 dict로 반환.
 
     스트리밍의 메시지 누락 문제를 회피하기 위한 안정 처리.
     recursion_limit으로 무한 루프 방지 (기본 25 → 60).
-    thread_id를 유지하면 checkpointer를 통해 가상 파일시스템과
-    이전 대화 컨텍스트가 누적된다 (같은 세션에서 후속 질문 가능).
     """
     inputs = {"messages": [{"role": "user", "content": user_message}]}
-    config = {
-        "recursion_limit": 60,
-        "configurable": {"thread_id": thread_id},
-    }
+    config = {"recursion_limit": 60}
     try:
         result = await agent.ainvoke(inputs, config=config)
     except Exception as exc:

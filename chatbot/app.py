@@ -53,10 +53,6 @@ def init_state() -> None:
         st.session_state.tools = []
     if "loop" not in st.session_state:
         st.session_state.loop = asyncio.new_event_loop()
-    if "thread_id" not in st.session_state:
-        # checkpointer + 가상 파일시스템이 같은 세션 동안 유지되도록 고정
-        import uuid
-        st.session_state.thread_id = f"chat-{uuid.uuid4().hex[:8]}"
 
 
 def get_loop() -> asyncio.AbstractEventLoop:
@@ -133,16 +129,7 @@ def render_sidebar(tools: list[Any]) -> None:
 
         if st.button("🗑️ 대화 초기화", use_container_width=True):
             st.session_state.messages = []
-            # thread_id를 새로 발급해 가상 FS·메모리도 초기화
-            import uuid
-            st.session_state.thread_id = f"chat-{uuid.uuid4().hex[:8]}"
             st.rerun()
-
-        st.caption(
-            f"🧠 메모리 세션: `{st.session_state.thread_id}` — "
-            "큰 검색 결과는 에이전트가 가상 파일시스템(`write_file`)에 적재하고 "
-            "후속 질문 시 `read_file`로 재활용합니다."
-        )
 
         st.markdown("---")
         st.caption("국가과학기술지식정보서비스(NTIS) 데이터 활용")
@@ -219,7 +206,7 @@ def render_live(question: str, agent: Any) -> dict[str, Any]:
     """
     progress_status = st.status("🤖 분석 중... 도구를 호출하고 데이터를 수집하고 있어요.", expanded=False)
 
-    result = run_async(run_agent_collect(agent, question, thread_id=st.session_state.thread_id))
+    result = run_async(run_agent_collect(agent, question))
 
     # 도구 호출 통계
     tool_calls = sum(1 for s in result["steps"] if s["type"] == "tool_call")
