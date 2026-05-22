@@ -49,16 +49,18 @@ B. 학술·특허 데이터 (ScienceON, 24개 도구, sci_ 접두사) — 전체
 ═══════════════════════════════════════════════════════════════════════
 【분석 깊이 — 강제 원칙】 절대 어기지 말 것
 ═══════════════════════════════════════════════════════════════════════
-1. **최소 5회 이상 도구 호출** — 단순 1~2회 검색으로 끝내지 않는다.
-   복합 비즈니스 질문은 8~15회까지 가는 것이 정상이다.
+1. **5~10회 도구 호출이 표준** — 1~2회로 끝내지 말되, 15회 이상 가지 말 것.
+   너무 많이 호출하면 시스템이 자동 중단된다.
 
 2. **반드시 양 데이터 소스 활용**:
    - 분야·기관·기술 관련 질문 → NTIS(정부 R&D) + ScienceON(학술/특허) 모두 호출
    - 한쪽만 호출하면 그림이 절반만 보인다.
 
-3. **정량 분석은 무조건 `fetch_all=True`**:
-   - 예산 합산, 기관 순위, 연도별 비교, 효율 지표 산출 시
-   - fetch_all=False로 100건만 보고 합산하는 것은 **사실상 거짓말**
+3. **정량 분석은 `fetch_all=True` — 단 1회만 신중하게**:
+   - 최종 합산·순위가 필요한 핵심 쿼리에 **딱 1번**만 사용
+   - 나머지는 `rows=10~30`으로 빠르게 탐색
+   - 연도별 시계열은 fetch_all 없이 `rows=5`로 카운트만 비교
+   - 모든 호출에 fetch_all=True 적용하면 즉시 중단됨
 
 4. **연도별 추세 분석 필수**:
    - 시장 진입·트렌드·분야 평가 질문에는 최근 3~5년 연도별 데이터 비교
@@ -73,6 +75,18 @@ B. 학술·특허 데이터 (ScienceON, 24개 도구, sci_ 접두사) — 전체
    - 검색 → 상위 기관 식별 → `get_org_rnd_status` × N
    - 대형 과제 식별 → `get_consignment_research` × N (협력 네트워크)
    - 핵심 PI 식별 → `search_sci_researchers`/`search_sci_papers`로 학술 활동 확인
+
+═══════════════════════════════════════════════════════════════════════
+【토큰 예산 — Context Overflow 방지】
+═══════════════════════════════════════════════════════════════════════
+- 누적 도구 응답이 200K 토큰을 넘으면 분석이 즉시 중단된다.
+- **권장 호출 패턴**:
+  1) 탐색 단계 — `rows=10~30`로 폭넓게 스캔 (4~6회)
+  2) 심층 단계 — 후보 기관·인물 N개에 대해 좁은 쿼리 (3~5회)
+  3) 정량 단계 — `fetch_all=True`는 최종 합산용 1~2회만
+- 도구 응답이 12,000자를 넘으면 자동 truncate되며 메시지가 표시된다.
+  이때는 검색어를 더 좁히거나 다른 도구로 집계 정보를 얻는다.
+- 같은 쿼리 반복 호출 금지 — 이미 받은 결과를 재활용한다.
 
 ═══════════════════════════════════════════════════════════════════════
 【비즈니스 프레임워크 — 답변에 활용】
@@ -115,15 +129,30 @@ B. 학술·특허 데이터 (ScienceON, 24개 도구, sci_ 접두사) — 전체
 💡 **추가 조사 제안** (선택)
    - 한계 인정 + 후속 분석 방향
 
+📚 **자료 출처** (필수)
+   - 답변 마지막에 사용한 데이터 소스를 명시합니다.
+   - 형식: "본 분석은 다음 공공 데이터를 활용했습니다:" + 항목 리스트
+     · **국가 R&D 정보망** (정부 R&D 과제·예산·기관·트렌드)
+     · **학술·특허 데이터베이스** (학술 논문, 특허, 연구자, 동향 보고서)
+   - **본문에서 표·수치 옆에 출처를 (괄호)로 짧게 표기**:
+     예) "신규 과제 1,195건 (정부 R&D)", "SCI 논문 6편 (학술 DB)"
+   - 시스템 이름(NTIS, ScienceON, KISTI)은 절대 노출 금지.
+   - 호출한 주요 도구 분류(검색·기관 현황·분류 추천 등)도 간단히 명시.
+
 ═══════════════════════════════════════════════════════════════════════
 【금지 행동】
 ═══════════════════════════════════════════════════════════════════════
 ✗ 도구 1~2회만 호출하고 답변 완료 (이미 1차 자료가 있어도 깊이 부족)
 ✗ 단순 카운트 나열 (왜·무엇을 의미하는지 해석 없이)
 ✗ 시스템 이름 (NTIS, ScienceON, KISTI, MCP 등) 답변에 노출
-✗ fetch_all 없이 정량 합산
+✗ 모든 호출에 fetch_all=True 사용 (컨텍스트 폭주)
+✗ 최종 합산을 fetch_all 없이 100건만으로 결론
 ✗ E4302/E4290 에러 그대로 사용자에게 노출 (우회하거나 NTIS로 대체)
 ✗ "정보가 부족합니다" "답변할 수 없습니다" — 데이터 한계가 있어도 가능한 범위에서 권고 제시
+✗ **`task` 도구로 서브에이전트 위임 금지** — 본 에이전트가 직접 모든 도구를 호출하고 끝까지 작성한다.
+✗ "subagent 결과를 기다리며…" 같은 미완성 메시지로 끝내지 말 것 — 반드시 7개 섹션을 모두 채워 마무리.
+✗ **검색 결과 0건이라도 절대 포기하지 말 것** — 이미 확보한 데이터로 분석을 작성하고, 빈 결과는 "리스크" 섹션에서 언급한다.
+✗ 마지막 응답을 "---", 빈 줄, 짧은 한 줄로 끝내지 말 것 — 반드시 완성된 분석 리포트를 출력한다 (최소 1,500자).
 
 ═══════════════════════════════════════════════════════════════════════
 【에러·한계 대응】
@@ -287,6 +316,23 @@ async def _resolve_tool_fn(tool_name: str) -> Callable[..., Any]:
     return tool_obj.fn
 
 
+_MAX_TOOL_RESULT_CHARS = 12000
+
+
+def _truncate_tool_result(text: str, tool_name: str) -> str:
+    """도구 응답이 너무 길면 토큰 절약을 위해 잘라낸다.
+
+    Context overflow 방지. 분석에는 상위 결과 + 메타데이터로 충분.
+    """
+    if len(text) <= _MAX_TOOL_RESULT_CHARS:
+        return text
+    # JSON이면 hits/items 등을 잘라서 다시 직렬화하는 게 가장 안전하지만,
+    # 단순화를 위해 앞부분만 보존하고 truncation 표시 추가.
+    head = text[:_MAX_TOOL_RESULT_CHARS]
+    tail_summary = f"\n\n[... 결과가 길어 일부만 표시 — 전체 {len(text):,}자 중 {_MAX_TOOL_RESULT_CHARS:,}자만 보존. 더 좁은 검색어로 재호출하거나 다른 도구로 집계 정보를 확보하세요.]"
+    return head + tail_summary
+
+
 def _make_tool_callable(tool_name: str, tool_fn: Callable[..., Any]) -> Callable[..., Any]:
     """NTIS MCP 도구를 LangChain Tool에서 호출할 수 있는 async 함수로 wrap."""
 
@@ -297,10 +343,12 @@ def _make_tool_callable(tool_name: str, tool_fn: Callable[..., Any]) -> Callable
             if inspect.iscoroutine(result):
                 result = await result
             if hasattr(result, "text"):
-                return result.text
-            if isinstance(result, str):
-                return result
-            return json.dumps(result, ensure_ascii=False, default=str)
+                text = result.text
+            elif isinstance(result, str):
+                text = result
+            else:
+                text = json.dumps(result, ensure_ascii=False, default=str)
+            return _truncate_tool_result(text, tool_name)
         except Exception as exc:
             msg = str(exc) or exc.__class__.__name__
             return json.dumps(
@@ -460,3 +508,77 @@ async def run_agent_full(agent: Any, user_message: str) -> str:
             for b in last.content
         )
     return str(last.content)
+
+
+async def run_agent_collect(agent: Any, user_message: str) -> dict[str, Any]:
+    """ainvoke로 한 번에 받아 모든 step + final을 dict로 반환.
+
+    스트리밍의 메시지 누락 문제를 회피하기 위한 안정 처리.
+    recursion_limit으로 무한 루프 방지 (기본 25 → 60).
+    """
+    inputs = {"messages": [{"role": "user", "content": user_message}]}
+    config = {"recursion_limit": 60}
+    try:
+        result = await agent.ainvoke(inputs, config=config)
+    except Exception as exc:
+        msg = str(exc)
+        if "GraphRecursionError" in msg or "recursion" in msg.lower():
+            return {
+                "steps": [{
+                    "type": "ai_text",
+                    "content": "⚠️ 분석이 60단계를 넘어 자동 중단되었습니다. 질문을 더 좁혀서 다시 시도해주세요.",
+                }],
+                "final": "⚠️ 분석이 60단계를 넘어 자동 중단되었습니다. 질문 범위를 좁혀 다시 시도해주세요. (예: '차세대 산업 3개' → '바이오 한 분야의 정부 투자 현황')",
+            }
+        raise
+    messages = result.get("messages") or []
+    steps: list[dict[str, Any]] = []
+    final_text = ""
+    for msg in messages:
+        kind = getattr(msg, "type", None) or msg.__class__.__name__.lower()
+        if kind in ("human", "humanmessage"):
+            continue  # 사용자 메시지 스킵
+        if kind in ("ai", "aimessage"):
+            text = ""
+            if isinstance(msg.content, str):
+                text = msg.content
+            elif isinstance(msg.content, list):
+                for block in msg.content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            text += block.get("text", "")
+                        elif block.get("type") == "thinking":
+                            steps.append({
+                                "type": "thinking",
+                                "content": block.get("thinking", ""),
+                            })
+                    elif isinstance(block, str):
+                        text += block
+            if text:
+                steps.append({"type": "ai_text", "content": text})
+                final_text = text  # 가장 마지막 ai_text가 최종 답변
+            for tc in (getattr(msg, "tool_calls", None) or []):
+                steps.append({
+                    "type": "tool_call",
+                    "content": {
+                        "name": tc.get("name") if isinstance(tc, dict) else tc.name,
+                        "args": tc.get("args") if isinstance(tc, dict) else tc.args,
+                        "id": tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", ""),
+                    },
+                })
+        elif kind in ("tool", "toolmessage"):
+            tool_name = getattr(msg, "name", "") or ""
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            steps.append({
+                "type": "tool_result",
+                "content": {"name": tool_name, "content": content},
+            })
+    # 마지막 ai_text가 너무 짧으면 (e.g. "---", 빈 줄) 가장 긴 ai_text로 대체
+    ai_texts = [s["content"] for s in steps if s["type"] == "ai_text"]
+    if final_text and len(final_text.strip()) < 100 and ai_texts:
+        longest = max(ai_texts, key=len)
+        if len(longest) > len(final_text):
+            final_text = longest
+
+    intermediate = [s for s in steps if not (s["type"] == "ai_text" and s["content"] == final_text)]
+    return {"steps": intermediate, "final": final_text}

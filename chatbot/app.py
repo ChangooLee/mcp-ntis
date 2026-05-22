@@ -24,7 +24,7 @@ for p in (PROJECT_ROOT, PROJECT_ROOT / "src"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from chatbot.agent import build_agent, stream_agent_run, enhance_user_prompt  # noqa: E402
+from chatbot.agent import build_agent, run_agent_collect, enhance_user_prompt  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -141,45 +141,35 @@ def render_sidebar(tools: list[Any]) -> None:
 
 
 def render_step(step: dict[str, Any]) -> None:
-    """에이전트의 단일 step (생각·도구호출·도구응답)을 시각화."""
-    stype = step["type"]
-    content = step["content"]
-
-    if stype in ("thinking", "ai_text"):
-        if not content.strip():
-            return
-        with st.chat_message("assistant", avatar="🧠"):
-            st.markdown(f"💭 **분석 중...**\n\n{content}")
-    elif stype == "tool_call":
-        name = content.get("name", "")
-        args = content.get("args", {})
-        with st.chat_message("assistant", avatar="🛠️"):
-            st.markdown(f"**🔧 도구 호출**: `{name}`")
-            with st.expander("입력 파라미터", expanded=False):
-                st.json(args)
-    elif stype == "tool_result":
-        name = content.get("name", "")
-        text = content.get("content", "")
-        with st.chat_message("assistant", avatar="📊"):
-            st.markdown(f"**📥 `{name}` 응답**")
-            with st.expander("응답 데이터", expanded=False):
-                try:
-                    parsed = json.loads(text)
-                    st.json(parsed)
-                except (json.JSONDecodeError, TypeError):
-                    st.code(text[:5000])
+    """(레거시) 사용 안 함. render_live가 expander로 일괄 처리."""
+    pass
 
 
 def render_message(msg: dict[str, Any]) -> None:
-    """과거 메시지 (저장된) 렌더링."""
+    """과거 메시지 (저장된) 렌더링 — expander로 묶기."""
     if msg["role"] == "user":
         with st.chat_message("user", avatar="👤"):
             st.markdown(msg["content"])
     elif msg["role"] == "assistant":
-        # 누적된 step들 + 최종 답변
         steps = msg.get("steps", [])
-        for step in steps:
-            render_step(step)
+        tool_calls = sum(1 for s in steps if s["type"] == "tool_call")
+        tools_used = sorted({s["content"].get("name", "") for s in steps if s["type"] == "tool_call"})
+        if steps:
+            with st.expander(
+                f"🔍 분석 과정 — 도구 {tool_calls}회 ({', '.join(tools_used)})",
+                expanded=False,
+            ):
+                for step in steps:
+                    stype = step["type"]
+                    content = step["content"]
+                    if stype == "ai_text" and content.strip():
+                        st.markdown(f"💭 {content[:500]}{'...' if len(content) > 500 else ''}")
+                    elif stype == "thinking" and content.strip():
+                        st.caption(f"🧠 {content[:300]}")
+                    elif stype == "tool_call":
+                        st.markdown(f"🔧 **{content.get('name','')}**")
+                    elif stype == "tool_result":
+                        st.caption(f"📥 {content.get('name','')} — {len(content.get('content',''))}자")
         final = msg.get("content", "")
         if final:
             with st.chat_message("assistant", avatar="🔬"):
@@ -209,53 +199,61 @@ async def process_question(question: str, agent: Any) -> dict[str, Any]:
 
 
 def render_live(question: str, agent: Any) -> dict[str, Any]:
-    """질문 처리 중 실시간 단계 표시.
+    """안정 모드: ainvoke로 한 번에 받아 모든 step과 final을 일괄 렌더링.
 
-    Streamlit의 sync 환경에서 async 스트림을 처리하기 위해
-    동기 wrapper로 step을 모았다가 순차 표시한다.
+    스트리밍 모드의 메시지 누락 이슈를 해결하기 위한 처리.
+    분석 중에는 spinner만 표시하고, 완료 후 전체 도구 흐름과 최종 답변을 표시.
     """
-    placeholder = st.empty()
-    progress_status = st.status("🤖 에이전트 분석 시작...", expanded=True)
+    progress_status = st.status("🤖 분석 중... 도구를 호출하고 데이터를 수집하고 있어요.", expanded=False)
 
-    steps: list[dict[str, Any]] = []
-    final_text = ""
+    result = run_async(run_agent_collect(agent, question))
 
-    async def _run() -> None:
-        nonlocal final_text
-        text_buffer = ""
-        async for step in stream_agent_run(agent, question):
+    # 도구 호출 통계
+    tool_calls = sum(1 for s in result["steps"] if s["type"] == "tool_call")
+    tool_results = sum(1 for s in result["steps"] if s["type"] == "tool_result")
+    tools_used = sorted(
+        {s["content"].get("name", "") for s in result["steps"] if s["type"] == "tool_call"}
+    )
+
+    progress_status.update(
+        label=f"✅ 분석 완료 — 도구 {tool_calls}회 호출 ({len(tools_used)}종)",
+        state="complete",
+        expanded=False,
+    )
+
+    # 도구 흐름을 하나의 expander에 묶어 가독성 확보
+    with st.expander(f"🔍 분석 과정 보기 — 도구 {tool_calls}회 / 응답 {tool_results}회 / 사용 도구: {', '.join(tools_used)}", expanded=False):
+        for step in result["steps"]:
             stype = step["type"]
-            if stype in ("thinking", "ai_text"):
-                text_buffer = step["content"]
-                with progress_status:
-                    if text_buffer.strip():
-                        snippet = text_buffer[:300] + ("..." if len(text_buffer) > 300 else "")
-                        st.markdown(f"💭 {snippet}")
+            content = step["content"]
+            if stype == "ai_text":
+                if content.strip():
+                    st.markdown(f"💭 **분석 메모** — {content[:500]}{'...' if len(content) > 500 else ''}")
+            elif stype == "thinking":
+                if content.strip():
+                    st.caption(f"🧠 {content[:300]}")
             elif stype == "tool_call":
-                name = step["content"].get("name", "")
-                with progress_status:
-                    st.markdown(f"🛠️ **도구 호출**: `{name}`")
+                name = content.get("name", "")
+                args = content.get("args", {})
+                st.markdown(f"🔧 **{name}**")
+                if args:
+                    args_short = {k: (str(v)[:120] + ("..." if len(str(v)) > 120 else "")) for k, v in args.items()}
+                    st.code(json.dumps(args_short, ensure_ascii=False, indent=2), language="json")
             elif stype == "tool_result":
-                name = step["content"].get("name", "")
-                with progress_status:
-                    st.markdown(f"📥 `{name}` 응답 수신")
-            steps.append(step)
-        final_text = text_buffer
+                name = content.get("name", "")
+                text = content.get("content", "")
+                preview = text[:300] + ("..." if len(text) > 300 else "")
+                st.markdown(f"📥 **{name}** 응답 ({len(text):,}자)")
+                st.caption(preview)
 
-    run_async(_run())
-
-    progress_status.update(label="✅ 분석 완료", state="complete", expanded=False)
-
-    # 마지막 ai_text는 최종 답변, 나머지는 중간 단계
-    intermediate = steps[:-1] if (steps and steps[-1]["type"] in ("thinking", "ai_text")) else steps
-    for step in intermediate:
-        render_step(step)
-
-    if final_text:
+    # 최종 답변
+    if result["final"]:
         with st.chat_message("assistant", avatar="🔬"):
-            st.markdown(final_text)
+            st.markdown(result["final"])
+    else:
+        st.warning("최종 답변을 생성하지 못했습니다. 질문을 더 구체적으로 작성하거나 다시 시도해주세요.")
 
-    return {"steps": intermediate, "final": final_text}
+    return {"steps": result["steps"], "final": result["final"]}
 
 
 # ---------------------------------------------------------------------------
