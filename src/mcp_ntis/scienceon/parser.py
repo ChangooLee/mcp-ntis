@@ -62,6 +62,13 @@ _KEY_MAP: dict[str, str] = {
     "ArticleId": "article_id",
     "ContentURL": "content_url",
     "Email": "email",
+    # 논문 부가 필드
+    "Affiliation": "affiliation",
+    "FulltextFlag": "has_fulltext",
+    "AbstractFlag": "has_abstract",
+    "FulltextURL": "fulltext_url",
+    "MobileURL": "mobile_url",
+    "PageInfo": "page_info",
     # 특허
     "Nation": "nation",
     "NationCode": "nation_code",

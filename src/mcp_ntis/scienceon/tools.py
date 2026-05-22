@@ -56,8 +56,13 @@ def _get_client() -> ScienceONClient:
 
 
 _SEARCH_QUERY_HELP = (
-    "검색 조건 dict. 예: {'BI': '양자컴퓨터'}, {'TI': '신약', 'PY': '2024'}. "
-    "필드: BI=전체본문, TI=제목, AU=저자, AB=초록, KW=키워드, PY=발행년, OG=ISSN/출원번호, PB=출판사."
+    "검색 조건 dict. 도구별 지원 필드가 다름 (E4007 회피 위해 각 도구 description 참조). "
+    "공통 필드: BI(전체본문), TI(제목). "
+    "ARTI/REPORT: BI/TI/AU(저자)/AB(초록)/KW(키워드)/PY(발행년). "
+    "ATT(동향): BI/TI/AU/AB/KW (PY 미지원). "
+    "TREND(infra)/RESEARCHER/ORGAN: BI/TI/KW만. "
+    "PATENT: BI/TI/PA(출원인)/AN/AD/RN/RD/AB/IN/IC. "
+    "SCENT: PY 전용. SNEWS: RD 전용."
 )
 
 
@@ -107,7 +112,8 @@ async def _do_browse(
     tags={"ScienceON", "논문", "검색"},
     description=(
         "ScienceON 논문 검색. KISTI가 수집한 국내·외 학술 논문 전체 대상. "
-        "응답 핵심 필드: CN(논문제어번호), Title, Author, JournalName, Pubyear, Abstract, Keyword. "
+        "지원 필드: **BI/TI/AU/AB/KW/PY**. "
+        "응답 핵심 키: cn, title, author, journal_name, pub_year, abstract, keywords. "
         "다음 단계: get_sci_paper(cn)로 상세 조회."
     ),
 )
@@ -142,12 +148,22 @@ async def get_sci_paper(
     name="search_sci_patents",
     tags={"ScienceON", "특허", "검색"},
     description=(
-        "ScienceON 특허 검색. 국내·해외(US/JP/EP/WO) 특허 통합 검색. "
-        "응답 핵심 필드: CN, Title, Applicants, ApplDate, IPC, Nation, PatentStatus."
+        "ScienceON 특허 검색. 국내·해외(US/JP/EP/WO) 특허 통합. "
+        "**검색 필드는 특허 전용**: BI(전체), TI(발명명칭), PA(출원인), AN(출원번호), "
+        "AD(출원일자 YYYYMMDD), UN(공개번호), UD(공개일자), RN(등록번호), RD(등록일자), "
+        "AB(초록), IN(발명자), IC(IPC), CN(문헌번호). "
+        "⚠️ PY(발행년)는 지원 안 됨 — 연도 필터는 AD/RD/UD 사용. "
+        "응답 핵심: cn, title, applicants, appl_date, ipc, nation, patent_status."
     ),
 )
 async def search_sci_patents(
-    search_query: Annotated[dict[str, Any], Field(description=_SEARCH_QUERY_HELP)] = {"BI": "battery"},
+    search_query: Annotated[
+        dict[str, Any],
+        Field(description=(
+            "검색 조건. 특허 전용 필드: BI/TI/PA/AN/AD/UN/UD/RN/RD/AB/IN/IC/CN. "
+            "예: {'BI':'전고체'}, {'PA':'KAIST'}, {'BI':'AI','AD':'2024'}."
+        ))
+    ] = {"BI": "battery"},
     cur_page: Annotated[int, Field(description="페이지 번호", ge=1)] = 1,
     row_count: Annotated[int, Field(description="페이지당 결과 수", ge=1, le=100)] = 10,
 ) -> TextContent:
@@ -206,7 +222,8 @@ async def search_sci_citation_patents(
     tags={"ScienceON", "보고서", "검색"},
     description=(
         "ScienceON 연구보고서 검색. NDSL의 R&D 최종·중간 보고서. "
-        "응답 핵심 필드: CN, Title, Publisher, Pubyear, Abstract."
+        "지원 필드: **BI/TI/AU/AB/KW/PY**. "
+        "응답 핵심 키: cn, title, publisher, pub_year, abstract."
     ),
 )
 async def search_sci_reports(
@@ -239,6 +256,7 @@ async def get_sci_report(
     description=(
         "ScienceON 동향 분석 보고서 검색 (target=ATT). "
         "KISTI가 큐레이션한 산업·기술 동향 — 정부 R&D 이슈와 별개 데이터. "
+        "지원 필드: **BI/TI/AU/AB/KW** (⚠️ PY 미지원). "
         "참고: TREND(infra)는 별도의 검색 도구 search_sci_infra_trend."
     ),
 )
@@ -302,7 +320,9 @@ async def get_sci_scent(
     tags={"ScienceON", "연구자", "검색"},
     description=(
         "ScienceON 연구원 검색 (target=RESEARCHER). "
-        "응답 핵심: CN, AuthorNameKor/Eng, AuthorInstKor/Eng, Keyword, ArticleCnt, PatentCnt, ReportCnt."
+        "지원 필드: **BI/TI**만 (다른 필드는 E4007). "
+        "응답 핵심: cn, author_name_kr, author_name_en, author_inst_kr, author_inst_en, "
+        "keywords, paper_count, patent_count, report_count."
     ),
 )
 async def search_sci_researchers(
@@ -329,7 +349,8 @@ async def get_sci_researcher(
     tags={"ScienceON", "연구기관", "검색"},
     description=(
         "ScienceON 연구기관 검색 (target=ORGAN). "
-        "응답 핵심: CN, OrganKor/Eng, Keyword, ArticleCnt(논문수), PatentCnt(특허수), ReportCnt(보고서수)."
+        "지원 필드: **BI/TI**만 (다른 필드는 E4007). "
+        "응답 핵심: cn, org_name_kr, org_name_en, keywords, paper_count, patent_count, report_count."
     ),
 )
 async def search_sci_organizations(
@@ -361,7 +382,8 @@ async def get_sci_organization(
     tags={"ScienceON", "동향", "지식인프라"},
     description=(
         "ScienceON 인프라 동향 검색 (target=TREND, infra). "
-        "ATT 동향과 다른 데이터 — KISTI 지식 인프라 가공 트렌드 콘텐츠."
+        "ATT 동향과 다른 데이터 — KISTI 지식 인프라 가공 트렌드 콘텐츠. "
+        "지원 필드: **BI/TI/KW**만."
     ),
 )
 async def search_sci_infra_trend(
