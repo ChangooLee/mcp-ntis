@@ -119,6 +119,36 @@ streamlit run chatbot/app.py
 |---|---|
 | `get_ntis_tool_info` | NTIS 도구 자체 탐색. LLM이 어떤 도구를 써야 할지 모를 때 먼저 호출. |
 
+### ScienceON 도구 (24개, 선택)
+
+NTIS와 다른 KISTI ScienceON OpenAPI Gateway 데이터(논문 ~59만/특허 ~78만/보고서/동향 등).
+`SCIENCEON_CLIENT_ID`/`SCIENCEON_API_KEY`/`SCIENCEON_MAC` 환경변수가 설정되면 자동 활성화.
+
+| 카테고리 | 도구 | 권한 (회귀 테스트 결과) |
+|---|---|---|
+| **논문** | `search_sci_papers` / `get_sci_paper` | ✅ |
+| | `sci_resolver` (링크리졸버) | E4302 권한 필요 |
+| | `sci_paper_toc` (권호 TOC) | E4302 권한 필요 |
+| **특허** | `search_sci_patents` / `get_sci_patent` | ✅ |
+| | `search_sci_applicant` (출원인 검색) | E4302 권한 필요 |
+| **보고서** | `search_sci_reports` / `get_sci_report` | ✅ |
+| **동향** | `search_sci_trends` / `get_sci_trend` | ✅ |
+| | `search_sci_scent` / `get_sci_scent` (과학향기) | ✅ |
+| **연구자·기관** | `search_sci_researchers` / `get_sci_researcher` | ✅ |
+| | `search_sci_organizations` / `get_sci_organization` | ✅ |
+| | `search_sci_authors` / `get_sci_author` (저자 전거) | E4302 권한 필요 |
+| **지식인프라** | `search_sci_function` / `search_sci_service` | E4302 권한 필요 |
+| | `search_sci_ddc` (주제분류) / `search_sci_education` | E4302 권한 필요 |
+| | `recommend_sci_content` | E4302 권한 필요 |
+
+> **E4302 안내**: ScienceON 인증키는 API 단위로 권한이 부여됩니다.
+> 일부 도구는 KISTI에 별도 권한 신청이 필요합니다. helpdesk@kisti.re.kr 문의.
+
+**자동 처리**:
+- Access Token 만료 → Refresh Token으로 자동 재발급
+- Refresh Token 만료 → 자동 재발급
+- E4290 rate limit → 지수 백오프 자동 재시도 (1→2→4→8초)
+
 ---
 
 ## 환경 변수

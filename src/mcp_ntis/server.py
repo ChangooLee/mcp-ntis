@@ -186,6 +186,16 @@ for _mod in [
 ]:
     importlib.import_module(f"mcp_ntis.tools.{_mod}")
 
+# ScienceON (KISTI ScienceON OpenAPI) — SCIENCEON_* 환경변수 설정 시에만 활성
+import os as _os
+
+if _os.getenv("SCIENCEON_CLIENT_ID") and _os.getenv("SCIENCEON_API_KEY"):
+    try:
+        importlib.import_module("mcp_ntis.scienceon.tools")
+        logger.info("ScienceON 도구 27개 활성화")
+    except Exception as _exc:
+        logger.warning(f"ScienceON 도구 로드 실패: {_exc}")
+
 
 # 모듈 로드 직후 NTIS 클라이언트 즉시 초기화
 _bootstrap_context()
