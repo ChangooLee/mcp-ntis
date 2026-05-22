@@ -52,30 +52,27 @@ _PAGINATION_NOTE = (
     name="search_rnd_projects",
     tags={"검색", "과제", "기초조사"},
     description=(
-        "국가R&D 과제를 검색합니다. 15개 도구 중 과제 정보가 가장 풍부: "
-        "연구목표·내용·기대효과 요약, 예산(정부·민간, 원 단위), 국가과학기술표준분류(대/중/소), "
-        "수행기관명, 사업명, 연구기간(연도별·총괄), 6T분류, 연구개발단계 포함. "
-        "같은 과제의 연도별 중복 레코드는 자동으로 제거되고 최신 연도만 반환됨. "
-        "\n\n"
-        "【중요: 페이지네이션 사용 가이드】"
+        "국가R&D 과제를 검색합니다. 도구 중 가장 풍부한 메타데이터 제공.\n"
         "\n"
-        "단일 호출은 최대 100건까지만 반환됩니다. 사용 시나리오별 권장 패턴: "
+        "**언제 쓰는가**: 키워드·기관·책임자로 정부 R&D 과제 목록·예산·기간 조회.\n"
         "\n"
-        " • **단순 조회/탐색** (상위 몇 건만 보면 충분): page_size=10~20, 기본값 OK. "
+        "**입력 패턴**:\n"
+        "  - 단순 키워드: query='양자컴퓨터'\n"
+        "  - 기관별: query='AI', add_query='OG=한국과학기술원'\n"
+        "  - 연도 필터: query='반도체', add_query='PY=2024/SAME'\n"
+        "  - 책임자: search_field='AU', query='홍길동'\n"
         "\n"
-        " • **목록 분석** (상위 N개 기관·키워드 추출): page_size=100 후 1페이지로 충분. "
+        "**응답 핵심 키**: id, title, manager, institution, ministry, "
+        "government_funds_krw(원 단위), period_start, period_end, keywords, science_class.\n"
         "\n"
-        " • **정확한 집계** (총 예산 합산, 분야 통계, 연도별 비교 등 정량 분석): "
-        "**반드시 fetch_all=True 사용** — 한 번의 호출로 모든 페이지를 자동 순회. "
-        "fetch_all=False로 100건만 보고 정량 분석하면 결과가 부정확 (전체의 일부만 합산). "
+        "**페이지네이션 가이드**:\n"
+        "  - 단순 조회: 기본값(page_size=10) OK\n"
+        "  - 상위 N개 분석: page_size=100\n"
+        "  - **정확한 합산·통계**: `fetch_all=True` 필수\n"
         "\n"
-        " • **수동 페이지 순회**: page를 1, 2, 3, … 증가시켜 호출. "
-        "응답에 total_hits 대비 반환이 적으면 pagination_warning 메타가 자동 안내. "
-        "\n\n"
-        "결과의 id 필드(예: '1711198200')를 get_consignment_research에 전달하면 "
-        "위탁·공동연구 기관과 연구비 배분을 조회 가능. "
-        "get_related_content(content_type='project', content_id=id)로 유사 과제 AI 추천 가능. "
-        "팁: 기관+키워드 동시 검색은 search_field='BI'와 add_query='OG=기관명' 조합이 가장 정확."
+        "**다음 단계**:\n"
+        "  - 위탁/공동 연구 → `get_consignment_research(project_id=id)`\n"
+        "  - 유사 과제 AI 추천 → `get_related_content(content_type='project', content_id=id)`"
     ),
 )
 async def search_rnd_projects(
@@ -124,14 +121,21 @@ async def search_rnd_projects(
     name="search_research_papers",
     tags={"검색", "논문", "성과물"},
     description=(
-        "국가R&D 과제의 성과 논문을 검색합니다. "
-        "[커버리지 제한] 정부지원 국가R&D 과제와 연계된 논문만 수록 (~19만 건). "
-        "민간기업 자체 연구, 기초학문 논문, 해외 연구는 포함되지 않음. "
-        "전체 학술논문 검색이 필요하면 RISS·DBpia·PubMed·Google Scholar 안내. "
-        "결과에는 논문명, 저자, 학술지(SCI/SCIE/비SCI 구분), 초록, 키워드, 연계과제(project_id) 포함. "
-        "특정 project_id로 연계 논문 역추적은 NTIS 검색 필드로 지원되지 않음 → "
-        "키워드/제목 검색 후 결과의 project_id 필드를 클라이언트에서 매칭. "
-        "학술지(OG=ISSN), 저자(AU), 키워드(KW), 초록(AB) 등으로 필터링 가능. "
+        "정부 R&D 과제와 연계된 성과 논문(약 19만 건)을 검색합니다.\n"
+        "\n"
+        "**언제 쓰는가**: 정부 펀딩 과제에서 나온 학술 논문 추적, 학술지·저자별 검색.\n"
+        "\n"
+        "**커버리지 제한**: 정부 R&D 연계 논문만 — 민간·해외·순수 학문 논문 미포함. "
+        "전체 학술 논문은 `search_sci_papers`(학술·특허 DB)·RISS·PubMed 사용.\n"
+        "\n"
+        "**입력 패턴**:\n"
+        "  - 키워드: query='딥러닝'\n"
+        "  - 학술지(ISSN): search_field='OG', query='1226-7945'\n"
+        "  - 연도: add_query='PY=2024/SAME'\n"
+        "\n"
+        "**응답 핵심 키**: id, title, authors, journal, sci_type(SCI/SCIE/비SCI), "
+        "pub_year, project_id(연계 과제), institution, ministry.\n"
+        "\n"
         + _PAGINATION_NOTE
     ),
 )
@@ -171,12 +175,21 @@ async def search_research_papers(
     name="search_patents",
     tags={"검색", "특허", "성과물", "지식재산"},
     description=(
-        "국가R&D 과제의 성과 특허를 검색합니다. "
-        "[커버리지 제한] 정부지원 국가R&D 과제와 연계된 특허만 수록 (~38만 건). "
-        "민간기업 자체 특허, 해외 기업 특허, R&D 과제 미연계 특허는 포함되지 않음. "
-        "전체 특허 검색이 필요하면 KIPRIS(kipris.or.kr) 또는 특허청 DB 안내. "
-        "결과에는 발명명칭, 출원인, 등록국가·번호, 출원/등록 구분, 연계과제 포함. "
-        "출원인(AU), 출원등록번호(OG), 발명명칭(TI) 등으로 필터링 가능. "
+        "정부 R&D 과제와 연계된 성과 특허(약 38만 건)를 검색합니다.\n"
+        "\n"
+        "**언제 쓰는가**: 정부 펀딩 R&D에서 출원·등록된 특허 추적.\n"
+        "\n"
+        "**커버리지 제한**: R&D 연계 특허만 — 민간 자체 출원·해외 기업 특허는 미포함. "
+        "전체 특허는 KIPRIS·`search_sci_patents` 사용.\n"
+        "\n"
+        "**입력 패턴**:\n"
+        "  - 키워드: query='전고체 배터리'\n"
+        "  - 출원인: search_field='AU', query='한국전자통신연구원'\n"
+        "  - 연도: add_query='PY=2024/SAME'\n"
+        "\n"
+        "**응답 핵심 키**: id, title, registrant, regist_country, regist_number, "
+        "regist_type(출원/등록), year, project_id(연계 과제), ministry.\n"
+        "\n"
         + _PAGINATION_NOTE
     ),
 )
@@ -216,10 +229,18 @@ async def search_patents(
     name="search_research_reports",
     tags={"검색", "보고서", "성과물"},
     description=(
-        "국가R&D 과제의 최종·중간 연구보고서를 검색합니다. "
-        "논문·특허와 달리 연구 결과 전체를 서술한 보고서로, 개발 방법·실험 결과·한계 등이 포함됨. "
-        "결과에는 보고서명, 저자, 초록(요약), 키워드, 원문 보유 여부, 연계과제 포함. "
-        "has_fulltext=true인 경우 NTIS에서 원문 열람 가능. "
+        "정부 R&D 과제의 최종·중간 연구보고서를 검색합니다.\n"
+        "\n"
+        "**언제 쓰는가**: 논문·특허보다 상세한 연구 전체 내용(방법·결과·한계)이 필요할 때.\n"
+        "\n"
+        "**입력 패턴**:\n"
+        "  - 키워드: query='자율주행'\n"
+        "  - 저자: search_field='AU', query='홍길동'\n"
+        "  - 연도: add_query='PY=2024/SAME'\n"
+        "\n"
+        "**응답 핵심 키**: id, title, year, has_fulltext(원문 보유 여부), "
+        "project_id, ministry, science_class.\n"
+        "\n"
         + _PAGINATION_NOTE
     ),
 )
@@ -259,11 +280,18 @@ async def search_research_reports(
     name="search_research_equipment",
     tags={"검색", "장비", "인프라"},
     description=(
-        "국가R&D 연구시설장비를 검색합니다. "
-        "장비명(국문/영문), 모델, 제조사, 보유기관, 설치위치, 구매가(원 단위), 구매일자, "
-        "활용범위(공동활용허용가능 여부), 장비 특징(상세 설명) 포함. "
-        "검색 필드: BI=전체, TI=장비명, OG=보유기관. "
-        "공동활용 가능 장비 검색·기관별 인프라 매핑에 유용. "
+        "정부 R&D로 도입된 연구 장비(시설·기기)를 검색합니다.\n"
+        "\n"
+        "**언제 쓰는가**: 공동 활용 가능 장비 발굴, 기관별 인프라 매핑, 연구 협력 후보 식별.\n"
+        "\n"
+        "**입력 패턴**:\n"
+        "  - 키워드: query='전자현미경'\n"
+        "  - 보유 기관: search_field='OG', query='한국과학기술원'\n"
+        "  - 장비명: search_field='TI', query='SEM'\n"
+        "\n"
+        "**응답 핵심 키**: id, title, manufacturer, institution, install_location, "
+        "price_krw(원 단위), use_scope(공동 활용 여부), use_type.\n"
+        "\n"
         + _PAGINATION_NOTE
     ),
 )
@@ -301,11 +329,19 @@ async def search_research_equipment(
     name="search_unified",
     tags={"검색", "통합", "분포파악"},
     description=(
-        "한 번의 호출로 여러 R&D 성과 유형을 동시에 검색합니다. "
-        "응답에 collection_counts(컬렉션별 매칭 건수)가 포함되어 전체 분포 파악에 유용. "
-        "사용 시점: 주제를 처음 탐색할 때 어느 유형에 데이터가 풍부한지 한눈에 보고 싶을 때. "
-        "이미 유형을 알고 있다면 전용 도구(search_rnd_projects 등)가 초록·분류·예산 등 더 많은 필드 반환. "
-        "[커버리지 참고] 논문/특허는 국가R&D 과제 연계 성과만 수록 (전체 DB의 일부)."
+        "여러 R&D 성과 유형(과제·논문·특허·보고서·장비)을 한 번에 검색합니다.\n"
+        "\n"
+        "**언제 쓰는가**: 주제를 처음 탐색할 때 어느 유형에 데이터가 풍부한지 한눈에 보고 싶을 때. "
+        "이미 유형을 알고 있다면 전용 도구(`search_rnd_projects` 등)가 더 상세함.\n"
+        "\n"
+        "**입력**: \n"
+        "  - 단일: collection='project'\n"
+        "  - 복수: collection='project,rpaper,rpatent'\n"
+        "  - 컬렉션 코드: project/rpaper/rpatent/rresearch/requip\n"
+        "\n"
+        "**응답 핵심 키**: collection_counts(유형별 매칭 건수), items, total_hits.\n"
+        "\n"
+        "**다음 단계**: 분포 확인 후 전용 도구로 심층 검색."
     ),
 )
 async def search_unified(

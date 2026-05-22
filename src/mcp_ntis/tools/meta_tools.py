@@ -20,18 +20,22 @@ logger = logging.getLogger("mcp-ntis")
     name="get_ntis_tool_info",
     tags={"메타", "도구탐색", "도움말"},
     description=(
-        "NTIS MCP 도구를 탐색하고 활용 패턴을 확인합니다. "
-        "LLM이 어떤 도구를 써야 할지 모르거나, 도구 간 연관 관계를 파악할 때 가장 먼저 호출. "
-        "\n\n"
-        "사용 패턴:\n"
-        "  • tool_name 없이 호출 → 카테고리별 전체 도구 목록 (16개 한눈에)\n"
-        "  • tool_name='search_rnd_projects' → 해당 도구의 파라미터·연관 도구·활용 예시\n"
-        "  • tag='검색' → 검색 카테고리 도구 모두 나열\n"
+        "정부 R&D 도구(NTIS 16개) 카탈로그를 탐색합니다 — 어떤 도구를 써야 할지 모를 때 사용.\n"
         "\n"
-        "활용 예: 사용자가 '한국 mRNA 백신 연구 동향'을 물으면, "
-        "먼저 get_ntis_tool_info(tag='검색')로 검색 도구를 살펴보고 "
-        "search_rnd_projects를 선택 → get_ntis_tool_info(tool_name='search_rnd_projects')로 "
-        "fetch_all 파라미터까지 확인 후 호출."
+        "**언제 쓰는가**: 작업 시작 전 어느 도구가 필요한지 파악, 도구 간 연결 관계 확인.\n"
+        "\n"
+        "**입력 패턴**:\n"
+        "  - 인자 없음: 카테고리별 전체 16개 도구 목록\n"
+        "  - tool_name='search_rnd_projects': 해당 도구의 상세(파라미터·연관 도구·활용 예시)\n"
+        "  - tag='검색': 태그로 필터링된 도구 목록\n"
+        "\n"
+        "**응답 핵심 키**: \n"
+        "  - 목록: categories(검색/과제상세/기관분석/분류추천/...), total_tools\n"
+        "  - 상세: tool_name, korean_name, parameters, linked_tools, usage_pattern\n"
+        "\n"
+        "**활용 예**: 사용자 질문 → tag='검색' 호출 → 도구 선택 → tool_name=... 으로 상세 확인.\n"
+        "\n"
+        "**참고**: 학술·특허 DB 도구(ScienceON 17개)는 별도 카탈로그 — `search_sci_*` 직접 호출."
     ),
 )
 async def get_ntis_tool_info(

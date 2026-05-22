@@ -32,13 +32,23 @@ _TEXT_HELP = (
     name="recommend_std_classification",
     tags={"분류추천", "표준분류", "과기부"},
     description=(
-        "국가과학기술표준분류(대/중/소) 코드를 추천합니다. "
-        "과기부·교육부·환경부 등 대부분의 R&D 과제에 적용되는 범용 분류 체계. "
-        "최대 5개를 정확도(%) 순으로 반환. 결과의 small_code가 과제 등록 시 실제 사용 코드. "
-        "단순모드: text 입력(연구목표·방법·효과 포함 150자/450바이트 이상 권장). "
-        "상세모드(detailed=True): goal+abstract 합산 300바이트 이상 필수. "
-        "텍스트가 짧거나 전문 용어가 부족하면 API 오류 반환 → 내용을 더 구체적으로 보완 후 재시도. "
-        "보건복지부→recommend_ht_classification, 산업부→recommend_it_classification 사용."
+        "연구 내용을 분석해 국가과학기술표준분류 코드(대/중/소)를 추천합니다.\n"
+        "\n"
+        "**언제 쓰는가**: 과기부·교육부·환경부 R&D 과제 분류 등록, 어떤 분야에 속하는지 확인.\n"
+        "\n"
+        "**부처별 도구 선택**:\n"
+        "  - 과기부·교육부 등 범용 → 이 도구\n"
+        "  - 보건복지부 → `recommend_ht_classification`\n"
+        "  - 산업부·중기부 → `recommend_it_classification`\n"
+        "\n"
+        "**입력**:\n"
+        "  - 단순모드: text='연구 내용 본문' (150자/450바이트 이상)\n"
+        "  - 상세모드: detailed=True + goal + abstract (각각 충분한 분량)\n"
+        "\n"
+        "**응답 핵심 키**: recommendations[]: rank, large_code/name, medium_code/name, "
+        "small_code/name, accuracy(%).\n"
+        "\n"
+        "**흔한 오류**: 텍스트가 짧거나 전문 용어 부족 시 -1002/-2002 오류 → 본문을 더 구체적으로 보완."
     ),
 )
 async def recommend_std_classification(
@@ -73,15 +83,23 @@ async def recommend_std_classification(
     name="recommend_ht_classification",
     tags={"분류추천", "보건의료", "복지부"},
     description=(
-        "보건의료기술분류 코드를 추천합니다 (보건복지부·질병관리청·국립암센터 R&D 전용). "
-        "세 가지 분류 축을 동시에 추천: "
-        "disease_classification(질환분류: KCD 코드, 어떤 질환 대상인지), "
-        "research_output_classification(연구행위분류: MOHWR, 어떤 연구 방법인지), "
-        "industry_classification(산업기술분류: MOTIE). "
-        "최대 5개씩 정확도(%) 순 반환. "
-        "텍스트 요건: 150자(450바이트) 이상 구체적 기술 권장. "
-        "짧거나 전문 용어 부족 시 오류 반환 → 내용 보완 후 재시도. "
-        "단순모드: text 입력. 상세모드(detailed=True): goal+abstract 합산 300바이트 이상 필수."
+        "보건의료 R&D 과제의 3개 분류 축을 동시에 추천합니다 (보건복지부·질병청·국립암센터 전용).\n"
+        "\n"
+        "**언제 쓰는가**: 보건의료 R&D 과제 등록, 어떤 질환·연구행위·산업 분류에 속하는지 확인.\n"
+        "\n"
+        "**3개 분류 축**:\n"
+        "  - disease_classification (KCD): 어떤 질환 대상인가\n"
+        "  - research_output_classification (MOHWR): 어떤 연구 행위인가\n"
+        "  - industry_classification (MOTIE): 어떤 산업 분야인가\n"
+        "\n"
+        "**입력**:\n"
+        "  - 단순모드: text='연구 내용 본문' (150자 이상)\n"
+        "  - 상세모드: detailed=True + goal + abstract\n"
+        "\n"
+        "**응답 핵심 키**: disease_classification[], research_output_classification[], "
+        "industry_classification[] — 각 항목에 rank, code, name, accuracy(%).\n"
+        "\n"
+        "**흔한 오류**: 본문 짧거나 전문 용어 부족 시 -1002/-2002 오류 → 보강 후 재시도."
     ),
 )
 async def recommend_ht_classification(
@@ -116,11 +134,18 @@ async def recommend_ht_classification(
     name="recommend_it_classification",
     tags={"분류추천", "산업기술", "산업부"},
     description=(
-        "산업기술분류 코드를 추천합니다 (산업통상자원부·중소벤처기업부 R&D 전용). "
-        "IT·BT·NT·ET·ST·CT 등 6T 기반 대/중/소 분류 코드와 정확도(%) 반환. 최대 5개 추천. "
-        "텍스트 요건: 150자(450바이트) 이상 구체적 기술 권장. "
-        "짧거나 전문 용어 부족 시 오류 반환 → 내용 보완 후 재시도. "
-        "단순모드: text 입력. 상세모드(detailed=True): goal+abstract 합산 300바이트 이상 필수."
+        "산업기술분류(6T) 코드를 추천합니다 (산업통상자원부·중소벤처기업부 R&D 전용).\n"
+        "\n"
+        "**언제 쓰는가**: 산업·중기부 R&D 과제의 6T(IT·BT·NT·ET·ST·CT) 분류 등록.\n"
+        "\n"
+        "**입력**:\n"
+        "  - 단순모드: text='연구 내용 본문' (150자/450바이트 이상)\n"
+        "  - 상세모드: detailed=True + goal + abstract (각각 충분한 분량)\n"
+        "\n"
+        "**응답 핵심 키**: recommendations[]: rank, large_code/name(예: E5=바이오·의료), "
+        "medium_code/name, small_code/name, accuracy(%).\n"
+        "\n"
+        "**흔한 오류**: 본문 짧거나 전문 용어 부족 시 -1002/-2002 오류 → 본문 보강."
     ),
 )
 async def recommend_it_classification(
