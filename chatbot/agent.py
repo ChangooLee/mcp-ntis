@@ -322,15 +322,48 @@ _MAX_TOOL_RESULT_CHARS = 12000
 def _truncate_tool_result(text: str, tool_name: str) -> str:
     """도구 응답이 너무 길면 토큰 절약을 위해 잘라낸다.
 
-    Context overflow 방지. 분석에는 상위 결과 + 메타데이터로 충분.
+    JSON 응답이면 items[]를 줄이고 truncation 메타를 추가해 JSON 구조 유지.
+    파싱 실패 시 단순 문자열 자르기로 폴백.
     """
     if len(text) <= _MAX_TOOL_RESULT_CHARS:
         return text
-    # JSON이면 hits/items 등을 잘라서 다시 직렬화하는 게 가장 안전하지만,
-    # 단순화를 위해 앞부분만 보존하고 truncation 표시 추가.
-    head = text[:_MAX_TOOL_RESULT_CHARS]
-    tail_summary = f"\n\n[... 결과가 길어 일부만 표시 — 전체 {len(text):,}자 중 {_MAX_TOOL_RESULT_CHARS:,}자만 보존. 더 좁은 검색어로 재호출하거나 다른 도구로 집계 정보를 확보하세요.]"
-    return head + tail_summary
+
+    # 1) JSON 구조 보존 시도 — items[]가 있으면 길이를 줄여 다시 직렬화
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            items = data.get("items")
+            if isinstance(items, list) and items:
+                original_len = len(items)
+                # 점진 축소: 응답 크기가 한계 이하가 될 때까지 items 절반씩 자름
+                keep = max(1, original_len)
+                while keep >= 1:
+                    candidate = dict(data)
+                    candidate["items"] = items[:keep]
+                    candidate["_truncated"] = {
+                        "original_items": original_len,
+                        "returned_items": keep,
+                        "reason": f"응답이 {_MAX_TOOL_RESULT_CHARS:,}자를 초과해 items만 잘림. 더 좁은 검색어 권장.",
+                    }
+                    serialized = json.dumps(candidate, ensure_ascii=False, default=str)
+                    if len(serialized) <= _MAX_TOOL_RESULT_CHARS:
+                        return serialized
+                    keep = keep // 2
+                # 단일 item으로도 한계 초과 — 단순 자르기로 폴백
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    # 2) 폴백: 단일 item이 너무 큰 경우 — 응답을 유효한 JSON으로 감싸서 반환
+    #    LLM이 json.loads 후 사용해도 깨지지 않도록.
+    head_chars = _MAX_TOOL_RESULT_CHARS - 500  # JSON 래핑 여유
+    wrapper = {
+        "_truncated": True,
+        "original_length": len(text),
+        "preserved_length": head_chars,
+        "note": "응답이 너무 커서 앞부분만 텍스트로 보존. 더 좁은 검색어 또는 rows를 줄여 재호출 권장.",
+        "raw_head": text[:head_chars],
+    }
+    return json.dumps(wrapper, ensure_ascii=False, default=str)
 
 
 def _make_tool_callable(tool_name: str, tool_fn: Callable[..., Any]) -> Callable[..., Any]:
