@@ -176,37 +176,57 @@ mcp = FastMCP(
 
 
 import importlib
-
-for _mod in [
-    "search_tools",
-    "project_tools",
-    "classification_tools",
-    "extra_tools",
-    "meta_tools",
-]:
-    importlib.import_module(f"mcp_ntis.tools.{_mod}")
-
-# ScienceON (KISTI ScienceON OpenAPI) — SCIENCEON_* 환경변수 설정 시에만 활성
 import os as _os
 
-if _os.getenv("SCIENCEON_CLIENT_ID") and _os.getenv("SCIENCEON_API_KEY"):
+
+# ---------------------------------------------------------------------------
+# 모드 선택: 게이트웨이 프록시 vs 직접 호출
+# ---------------------------------------------------------------------------
+# NTIS_GATEWAY_URL이 설정되어 있으면 게이트웨이 프록시 모드로 동작 — 도구는
+# 원격 게이트웨이를 호출하며 본 머신에는 NTIS·ScienceON·DataON 발급 키 불필요.
+# 미설정이면 in-process 직접 호출 모드 (운영자/게이트웨이 호스트 측 모드).
+
+_GATEWAY_MODE = bool(_os.getenv("NTIS_GATEWAY_URL"))
+
+if _GATEWAY_MODE:
+    # 게이트웨이 프록시 모드 — 원격 메타로 도구 동적 등록
     try:
-        importlib.import_module("mcp_ntis.scienceon.tools")
-        logger.info("ScienceON 도구 17개 활성화 (공식 카탈로그 1:1 매핑)")
+        importlib.import_module("mcp_ntis.gateway_proxy.tools")
+        logger.info(
+            f"MCP가 게이트웨이 프록시 모드로 동작: {_os.getenv('NTIS_GATEWAY_URL')}"
+        )
     except Exception as _exc:
-        logger.warning(f"ScienceON 도구 로드 실패: {_exc}")
+        logger.error(f"게이트웨이 프록시 로드 실패: {_exc}", exc_info=True)
+        raise
+else:
+    # 직접 호출 모드 — NTIS·ScienceON·DataON 발급 키로 in-process 호출
+    for _mod in [
+        "search_tools",
+        "project_tools",
+        "classification_tools",
+        "extra_tools",
+        "meta_tools",
+    ]:
+        importlib.import_module(f"mcp_ntis.tools.{_mod}")
 
-# DataON (KISTI 국가연구데이터플랫폼) — DATAON_API_KEY 설정 시에만 활성
-if _os.getenv("DATAON_API_KEY"):
-    try:
-        importlib.import_module("mcp_ntis.dataon.tools")
-        logger.info("DataON 도구 1개 활성화 (연구데이터 검색)")
-    except Exception as _exc:
-        logger.warning(f"DataON 도구 로드 실패: {_exc}")
+    # ScienceON (선택) — SCIENCEON_* 환경변수 설정 시에만 활성
+    if _os.getenv("SCIENCEON_CLIENT_ID") and _os.getenv("SCIENCEON_API_KEY"):
+        try:
+            importlib.import_module("mcp_ntis.scienceon.tools")
+            logger.info("ScienceON 도구 17개 활성화 (공식 카탈로그 1:1 매핑)")
+        except Exception as _exc:
+            logger.warning(f"ScienceON 도구 로드 실패: {_exc}")
 
+    # DataON (선택) — DATAON_API_KEY 설정 시에만 활성
+    if _os.getenv("DATAON_API_KEY"):
+        try:
+            importlib.import_module("mcp_ntis.dataon.tools")
+            logger.info("DataON 도구 활성화 (연구데이터 검색·상세)")
+        except Exception as _exc:
+            logger.warning(f"DataON 도구 로드 실패: {_exc}")
 
-# 모듈 로드 직후 NTIS 클라이언트 즉시 초기화
-_bootstrap_context()
+    # 직접 모드에서만 NTIS 클라이언트 초기화 (게이트웨이 모드는 키 불필요)
+    _bootstrap_context()
 
 
 # ---------------------------------------------------------------------------
