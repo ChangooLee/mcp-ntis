@@ -57,7 +57,9 @@ def _get_client() -> DataONClient:
         "  - sort_arr: 'asc' | 'desc'\n"
         "\n"
         "**응답 핵심 키**: total_count, items[].title, description, keywords, "
-        "doi, landing_url, access_type, catalog_type, repository, creator, publisher."
+        "doi, landing_url, access_type, catalog_type, repository, creator, publisher.\n"
+        "\n"
+        "**다음 단계**: 검색 결과의 doi 또는 id로 `get_dataon_dataset` 호출하여 상세 메타 조회."
     ),
 )
 async def search_dataon_datasets(
@@ -85,4 +87,36 @@ async def search_dataon_datasets(
         return as_json_text(result)
     except Exception as exc:
         logger.error(f"search_dataon_datasets 오류: {exc}")
+        return error_text(str(exc))
+
+
+@mcp.tool(
+    name="get_dataon_dataset",
+    tags={"DataON", "연구데이터", "상세"},
+    description=(
+        "연구 데이터셋 1건의 상세 메타정보를 조회합니다.\n"
+        "\n"
+        "**언제 쓰는가**: `search_dataon_datasets` 결과에서 특정 데이터셋의 "
+        "전체 메타(저자·연도·DOI·접근경로·라이선스·repository 등)를 받고 싶을 때.\n"
+        "\n"
+        "**입력**:\n"
+        "  - dataset_id: 검색 결과의 id 또는 doi\n"
+        "  - query: 보조 검색어 (일부 환경에서 매칭에 도움)\n"
+        "\n"
+        "**응답**: items[0]에 단일 dataset의 정제된 메타 dict."
+    ),
+)
+async def get_dataon_dataset(
+    dataset_id: Annotated[str, Field(description="데이터셋 ID 또는 DOI")],
+    query: Annotated[str, Field(description="보조 검색어 (선택)")] = "",
+) -> TextContent:
+    try:
+        client = _get_client()
+        result = await client.get_dataset_detail(
+            dataset_id=dataset_id,
+            query=query or None,
+        )
+        return as_json_text(result)
+    except Exception as exc:
+        logger.error(f"get_dataon_dataset 오류: {exc}")
         return error_text(str(exc))

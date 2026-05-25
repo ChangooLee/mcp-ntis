@@ -24,6 +24,8 @@ logger = logging.getLogger("mcp-ntis.dataon")
 
 
 API_URL = "https://dataon.kisti.re.kr/rest/api/search/dataset"
+# 연구데이터 상세 조회는 동일 엔드포인트에 trailing slash + 다른 발급키 사용
+DETAIL_URL = "https://dataon.kisti.re.kr/rest/api/search/dataset/"
 
 # 응답 raw 필드 → 정제된 키 매핑 (mcp-opendart 패턴)
 _KEY_MAP: dict[str, str] = {
@@ -86,6 +88,7 @@ class DataONClient:
     def __init__(
         self,
         api_key: str | None = None,
+        detail_api_key: str | None = None,
         timeout: float = 30.0,
     ) -> None:
         self.api_key = (api_key or os.getenv("DATAON_API_KEY", "")).strip()
@@ -94,6 +97,10 @@ class DataONClient:
                 "DATAON_API_KEY 환경변수가 설정되지 않았습니다. "
                 "DataON OpenAPI 키를 .env 또는 환경변수에 설정하세요."
             )
+        # 메타 상세 조회용 별도 키 (KISTI가 검색·상세를 별도 발급)
+        self.detail_api_key = (
+            detail_api_key or os.getenv("DATAON_DETAIL_API_KEY", "")
+        ).strip()
         self._timeout = timeout
         self._http: httpx.AsyncClient | None = None
 
@@ -241,3 +248,100 @@ class DataONClient:
             )
 
         return out
+
+    # ----------------------------------------------------------- 메타 상세
+
+    async def get_dataset_detail(
+        self,
+        dataset_id: str,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        """연구데이터 메타 상세 조회.
+
+        Args:
+            dataset_id: 검색 결과의 dataset id (DOI 또는 내부 id)
+            query: 일부 환경에서 query 파라미터를 필수로 요구하므로 보조 입력
+
+        Returns:
+            search_datasets 와 동일 스키마. items에는 단일 레코드.
+        """
+        if not self.detail_api_key:
+            return {
+                "status": "error",
+                "error": {
+                    "code": "E_NO_DETAIL_KEY",
+                    "message": "DATAON_DETAIL_API_KEY가 설정되지 않았습니다.",
+                },
+                "items": [],
+                "total_count": 0,
+            }
+
+        params: dict[str, Any] = {
+            "key": self.detail_api_key,
+            "from": 0,
+            "size": 1,
+        }
+        if query:
+            params["query"] = query
+        # dataset_id는 doi 또는 식별자 — KISTI 명세상 query에 doi/id를 그대로 줘도 매칭
+        # 명시적 필드명이 있다면 보강
+        params.setdefault("query", dataset_id)
+        params["dataset_id"] = dataset_id
+
+        try:
+            resp = await self.http.get(DETAIL_URL, params=params)
+        except httpx.TimeoutException:
+            return {
+                "status": "error",
+                "items": [],
+                "total_count": 0,
+                "error": {"code": "E_TIMEOUT", "message": "DataON 상세 응답 지연"},
+            }
+        except httpx.RequestError as exc:
+            return {
+                "status": "error",
+                "items": [],
+                "total_count": 0,
+                "error": {"code": "E_NETWORK", "message": str(exc)[:200]},
+            }
+
+        if resp.status_code != 200:
+            return {
+                "status": "error",
+                "items": [],
+                "total_count": 0,
+                "error": {
+                    "code": f"E_HTTP_{resp.status_code}",
+                    "message": (resp.text or "")[:300],
+                },
+            }
+        try:
+            data = resp.json()
+        except Exception as exc:
+            return {
+                "status": "error",
+                "items": [],
+                "total_count": 0,
+                "error": {"code": "E_PARSE", "message": str(exc)[:200]},
+            }
+
+        raw_items: list[Any] = []
+        for k in ("items", "result", "results", "data", "hits", "documents", "list"):
+            v = data.get(k)
+            if isinstance(v, list):
+                raw_items = v
+                break
+        if not raw_items and isinstance(data, list):
+            raw_items = data
+        if not raw_items and isinstance(data, dict) and "dataset_doi" in data:
+            # 응답 자체가 단일 record인 경우
+            raw_items = [data]
+
+        items = [_map_keys(r) if isinstance(r, dict) else {"raw": str(r)} for r in raw_items]
+        return {
+            "status": "ok",
+            "total_count": len(items),
+            "returned": len(items),
+            "items": items,
+            "dataset_id": dataset_id,
+        }
