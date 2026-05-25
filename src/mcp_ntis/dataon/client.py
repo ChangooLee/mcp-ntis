@@ -200,25 +200,28 @@ class DataONClient:
                 "error": {"code": "E_PARSE", "message": f"JSON 파싱 실패: {exc}"[:200]},
             }
 
-        # DataON 응답이 정확히 어떤 dict 구조인지 명세에 분기 처리.
-        # 명세상: 메타(elapsed time/status/total count/from/size) + items 배열.
-        # 실제 키 이름은 환경에 따라 달라질 수 있어 광범위 매핑:
+        # DataON 응답 구조:
+        # { "response": { "elapsed time": "...", "status": "200", "total count": N, ... },
+        #   "records": [ {...}, ... ] }
+        # 일부 환경에선 wrapping 없이 top-level에 키가 올 수도 있어 양쪽 모두 처리.
+        meta = data.get("response") if isinstance(data.get("response"), dict) else data
+
         total_count = (
-            data.get("total_count")
-            or data.get("totalCount")
-            or data.get("total count")
-            or data.get("total")
+            meta.get("total_count")
+            or meta.get("totalCount")
+            or meta.get("total count")
+            or meta.get("total")
             or 0
         )
         elapsed = (
-            data.get("elapsed_time")
-            or data.get("elapsedTime")
-            or data.get("elapsed time")
+            meta.get("elapsed_time")
+            or meta.get("elapsedTime")
+            or meta.get("elapsed time")
         )
 
-        # items 배열 후보
+        # items 배열 후보 — DataON은 "records"가 표준
         raw_items: list[Any] = []
-        for k in ("items", "result", "results", "data", "hits", "documents", "list"):
+        for k in ("records", "items", "result", "results", "data", "hits", "documents", "list"):
             v = data.get(k)
             if isinstance(v, list):
                 raw_items = v
@@ -326,7 +329,7 @@ class DataONClient:
             }
 
         raw_items: list[Any] = []
-        for k in ("items", "result", "results", "data", "hits", "documents", "list"):
+        for k in ("records", "items", "result", "results", "data", "hits", "documents", "list"):
             v = data.get(k)
             if isinstance(v, list):
                 raw_items = v
