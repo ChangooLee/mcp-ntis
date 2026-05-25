@@ -1,0 +1,17 @@
+[Unit]
+Description=NTIS · ScienceON 통합 REST 게이트웨이
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/mcp-ntis
+EnvironmentFile=%h/mcp-ntis/.env
+ExecStart=%h/mcp-ntis/.venv/bin/uvicorn gateway.main:app --host 0.0.0.0 --port 8090
+Restart=always
+RestartSec=5
+StandardOutput=append:%h/mcp-ntis/gateway.log
+StandardError=append:%h/mcp-ntis/gateway.log
+
+[Install]
+WantedBy=default.target
