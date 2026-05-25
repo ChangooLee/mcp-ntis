@@ -1,0 +1,243 @@
+"""DataON (국가연구데이터플랫폼) REST API 클라이언트.
+
+엔드포인트: https://dataon.kisti.re.kr/rest/api/search/dataset
+인증: key 파라미터 (발급받은 API key)
+파라미터: query, from, size, sortCon, sortArr
+
+응답은 JSON, 다국어 필드 (kor/etc_main/etc_sub) 포함.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any
+
+import httpx
+
+logger = logging.getLogger("mcp-ntis.dataon")
+
+
+# ---------------------------------------------------------------------------
+# 상수
+# ---------------------------------------------------------------------------
+
+
+API_URL = "https://dataon.kisti.re.kr/rest/api/search/dataset"
+
+# 응답 raw 필드 → 정제된 키 매핑 (mcp-opendart 패턴)
+_KEY_MAP: dict[str, str] = {
+    # 제목·설명·키워드 (한글 우선, 다국어는 alt에)
+    "dataset_title_kor": "title",
+    "dataset_title_etc_main": "title_en",
+    "dataset_title_etc_sub": "title_alt",
+    "dataset_expl_kor": "description",
+    "dataset_expl_etc_main": "description_en",
+    "dataset_expl_etc_sub": "description_alt",
+    "dataset_kywd_kor": "keywords",
+    "dataset_kywd_etc_main": "keywords_en",
+    "dataset_kywd_etc_sub": "keywords_alt",
+    # 식별·접근
+    "dataset_doi": "doi",
+    "dataset_lndgpg": "landing_url",
+    "dataset_access_type_pc": "access_type",
+    "ctlg_type_pc": "catalog_type",
+    "dataset_mnsb_pc": "subject_class",
+    "repo_pc": "repository",
+    "dataset_id": "id",
+    "dataset_pblc_dt": "publish_date",
+    "dataset_lstm_dt": "modify_date",
+    "dataset_creator": "creator",
+    "dataset_publisher": "publisher",
+    "dataset_license": "license",
+    "dataset_size": "size_bytes",
+    "dataset_format": "format",
+    "dataset_lang": "language",
+}
+
+
+def _map_keys(record: dict[str, Any]) -> dict[str, Any]:
+    """raw record dict → snake_case 정제 dict.
+
+    매핑되지 않은 키는 원본 그대로 보존(미래 확장 대비).
+    빈 값은 제거.
+    """
+    out: dict[str, Any] = {}
+    for k, v in record.items():
+        if v in (None, "", []):
+            continue
+        new_key = _KEY_MAP.get(k, k)
+        out[new_key] = v
+    return out
+
+
+# ---------------------------------------------------------------------------
+# DataON 클라이언트
+# ---------------------------------------------------------------------------
+
+
+class DataONClient:
+    """DataON OpenAPI 통합 클라이언트.
+
+    환경변수:
+        DATAON_API_KEY — 발급받은 인증키 (필수)
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        timeout: float = 30.0,
+    ) -> None:
+        self.api_key = (api_key or os.getenv("DATAON_API_KEY", "")).strip()
+        if not self.api_key:
+            raise ValueError(
+                "DATAON_API_KEY 환경변수가 설정되지 않았습니다. "
+                "DataON OpenAPI 키를 .env 또는 환경변수에 설정하세요."
+            )
+        self._timeout = timeout
+        self._http: httpx.AsyncClient | None = None
+
+    @property
+    def http(self) -> httpx.AsyncClient:
+        if self._http is None or self._http.is_closed:
+            self._http = httpx.AsyncClient(timeout=self._timeout)
+        return self._http
+
+    async def close(self) -> None:
+        if self._http and not self._http.is_closed:
+            await self._http.aclose()
+
+    # ------------------------------------------------------------------ 검색
+
+    async def search_datasets(
+        self,
+        query: str,
+        from_: int = 0,
+        size: int = 10,
+        sort_con: str | None = None,
+        sort_arr: str | None = None,
+    ) -> dict[str, Any]:
+        """연구데이터 검색.
+
+        Args:
+            query: 검색 키워드 (필수)
+            from_: 페이지 시작 위치 (기본 0)
+            size: 페이지당 결과 수 (기본 10)
+            sort_con: 정렬 기준 — 'title' | 'date' | 'score' (생략 시 score 기본)
+            sort_arr: 정렬 순서 — 'asc' | 'desc'
+
+        Returns:
+            정제된 dict:
+                {
+                  "status": "ok" | "error",
+                  "total_count": int,
+                  "from": int, "size": int, "returned": int,
+                  "elapsed_time_ms": int | None,
+                  "items": [{... 정제된 record ...}],
+                  "pagination_hint": str | None,  # total > returned 시
+                  "error": {"code": ..., "message": ...} | None
+                }
+        """
+        params: dict[str, Any] = {
+            "key": self.api_key,
+            "query": query,
+            "from": from_,
+            "size": size,
+        }
+        if sort_con:
+            params["sortCon"] = sort_con
+        if sort_arr:
+            params["sortArr"] = sort_arr
+
+        try:
+            resp = await self.http.get(API_URL, params=params)
+        except httpx.TimeoutException as exc:
+            return {
+                "status": "error",
+                "total_count": 0,
+                "items": [],
+                "error": {
+                    "code": "E_TIMEOUT",
+                    "message": f"DataON 응답 지연 ({self._timeout}s) — 잠시 후 재시도",
+                },
+            }
+        except httpx.RequestError as exc:
+            return {
+                "status": "error",
+                "total_count": 0,
+                "items": [],
+                "error": {"code": "E_NETWORK", "message": str(exc)[:200]},
+            }
+
+        # HTTP 비-200 응답
+        if resp.status_code != 200:
+            text = resp.text[:300] if resp.text else ""
+            return {
+                "status": "error",
+                "total_count": 0,
+                "items": [],
+                "error": {
+                    "code": f"E_HTTP_{resp.status_code}",
+                    "message": text or f"HTTP {resp.status_code}",
+                },
+            }
+
+        # JSON 파싱
+        try:
+            data = resp.json()
+        except Exception as exc:
+            return {
+                "status": "error",
+                "total_count": 0,
+                "items": [],
+                "error": {"code": "E_PARSE", "message": f"JSON 파싱 실패: {exc}"[:200]},
+            }
+
+        # DataON 응답이 정확히 어떤 dict 구조인지 명세에 분기 처리.
+        # 명세상: 메타(elapsed time/status/total count/from/size) + items 배열.
+        # 실제 키 이름은 환경에 따라 달라질 수 있어 광범위 매핑:
+        total_count = (
+            data.get("total_count")
+            or data.get("totalCount")
+            or data.get("total count")
+            or data.get("total")
+            or 0
+        )
+        elapsed = (
+            data.get("elapsed_time")
+            or data.get("elapsedTime")
+            or data.get("elapsed time")
+        )
+
+        # items 배열 후보
+        raw_items: list[Any] = []
+        for k in ("items", "result", "results", "data", "hits", "documents", "list"):
+            v = data.get(k)
+            if isinstance(v, list):
+                raw_items = v
+                break
+        # 응답 자체가 list라면
+        if not raw_items and isinstance(data, list):
+            raw_items = data
+
+        items = [_map_keys(r) if isinstance(r, dict) else {"raw": str(r)} for r in raw_items]
+
+        out: dict[str, Any] = {
+            "status": "ok",
+            "total_count": int(total_count) if total_count else 0,
+            "from": from_,
+            "size": size,
+            "returned": len(items),
+            "items": items,
+        }
+        if elapsed is not None:
+            out["elapsed_time_ms"] = elapsed
+
+        if out["total_count"] > len(items) and out["total_count"] > from_ + size:
+            remaining = out["total_count"] - (from_ + size)
+            out["pagination_hint"] = (
+                f"총 {out['total_count']:,}건 중 {len(items)}건 반환 — "
+                f"남은 {remaining:,}건은 from={from_ + size} 부터 순회."
+            )
+
+        return out

@@ -196,6 +196,14 @@ if _os.getenv("SCIENCEON_CLIENT_ID") and _os.getenv("SCIENCEON_API_KEY"):
     except Exception as _exc:
         logger.warning(f"ScienceON 도구 로드 실패: {_exc}")
 
+# DataON (KISTI 국가연구데이터플랫폼) — DATAON_API_KEY 설정 시에만 활성
+if _os.getenv("DATAON_API_KEY"):
+    try:
+        importlib.import_module("mcp_ntis.dataon.tools")
+        logger.info("DataON 도구 1개 활성화 (연구데이터 검색)")
+    except Exception as _exc:
+        logger.warning(f"DataON 도구 로드 실패: {_exc}")
+
 
 # 모듈 로드 직후 NTIS 클라이언트 즉시 초기화
 _bootstrap_context()
