@@ -359,8 +359,98 @@ def _make_tool_callable(tool_name: str, tool_fn: Callable[..., Any]) -> Callable
     return _call
 
 
+def _make_rest_callable(
+    gateway_url: str,
+    api_key: str,
+    tool_name: str,
+    timeout: float = 120.0,
+) -> Callable[..., Any]:
+    """REST 게이트웨이의 POST /api/{tool_name}을 호출하는 async 함수."""
+    import httpx  # local import to avoid hard dependency in non-REST mode
+
+    endpoint = f"{gateway_url.rstrip('/')}/api/{tool_name}"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
+
+    async def _call(**kwargs: Any) -> str:
+        clean = {k: v for k, v in kwargs.items() if v is not None and k != "_dummy"}
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(endpoint, headers=headers, json=clean)
+            try:
+                data = resp.json()
+            except Exception:
+                data = {"raw": resp.text[:2000]}
+            text = json.dumps(data, ensure_ascii=False, default=str)
+            return _truncate_tool_result(text, tool_name)
+        except Exception as exc:
+            msg = str(exc) or exc.__class__.__name__
+            return json.dumps(
+                {
+                    "error": msg,
+                    "tool": tool_name,
+                    "endpoint": endpoint,
+                    "hint": "REST 게이트웨이 응답 지연/오류. 잠시 뒤 재시도하거나 입력 파라미터를 줄이세요.",
+                },
+                ensure_ascii=False,
+            )
+
+    return _call
+
+
+async def _build_langchain_tools_rest(
+    gateway_url: str,
+    api_key: str,
+) -> list[StructuredTool]:
+    """REST 게이트웨이의 /tools 메타로부터 33개 LangChain StructuredTool을 생성."""
+    import httpx
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        list_resp = await client.get(f"{gateway_url.rstrip('/')}/tools", headers=headers)
+        list_resp.raise_for_status()
+        tool_list = list_resp.json().get("tools", [])
+        # 도구별 상세 메타(파라미터 스키마)는 /tools/{name} 으로 별도 조회
+        tools: list[StructuredTool] = []
+        for entry in tool_list:
+            name = entry["name"]
+            meta_resp = await client.get(
+                f"{gateway_url.rstrip('/')}/tools/{name}", headers=headers
+            )
+            meta_resp.raise_for_status()
+            meta = meta_resp.json()
+            description = (meta.get("description") or "").strip()
+            if len(description) > 1024:
+                description = description[:1020] + "..."
+            parameters = meta.get("parameters") or {}
+            args_model = _build_arg_model(name, parameters)
+            coroutine = _make_rest_callable(gateway_url, api_key, name)
+            tool = StructuredTool.from_function(
+                coroutine=coroutine,
+                name=name,
+                description=description,
+                args_schema=args_model,
+            )
+            tools.append(tool)
+    return tools
+
+
 async def build_langchain_tools() -> list[StructuredTool]:
-    """NTIS 도구 16개를 LangChain StructuredTool로 변환."""
+    """NTIS 도구를 LangChain StructuredTool로 변환.
+
+    환경변수 `NTIS_GATEWAY_URL`이 설정되면 REST 게이트웨이 호출 모드로 동작.
+    그렇지 않으면 기존 in-process(mcp_ntis 직접 import) 모드.
+    """
+    gateway_url = os.getenv("NTIS_GATEWAY_URL", "").strip()
+    if gateway_url:
+        api_key = os.getenv("NTIS_GATEWAY_API_KEY", "").strip()
+        return await _build_langchain_tools_rest(gateway_url, api_key)
+
+    # in-process 모드 (기존)
     from mcp_ntis.server import tool_registry
 
     tools: list[StructuredTool] = []
